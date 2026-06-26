@@ -15,11 +15,18 @@ export { default as ChatReasoning } from "./components/ChatReasoning.vue";
 export { default as ChatToolCall } from "./components/ChatToolCall.vue";
 export { default as ChatAttachments } from "./components/ChatAttachments.vue";
 export { default as ChatCitations } from "./components/ChatCitations.vue";
+export { default as ChatObject } from "./components/ChatObject.vue";
+export { default as ChatStructured } from "./components/ChatStructured.vue";
 
 export { renderMarkdown } from "./markdown";
+export { parsePartialJson } from "./structured";
 
 export { useChat } from "./composables/useChat";
-export type { UseChatOptions, UseChatReturn, ChatStatus } from "./composables/useChat";
+export type {
+  UseChatOptions,
+  UseChatReturn,
+  ChatStatus,
+} from "./composables/useChat";
 export { useLenis } from "./composables/useLenis";
 export type { UseLenisOptions } from "./composables/useLenis";
 export { useTheme } from "./composables/useTheme";
@@ -40,4 +47,6 @@ export type {
   ToolCall,
   ToolCallStatus,
   Citation,
+  StructuredField,
+  StructuredFieldType,
 } from "./types";

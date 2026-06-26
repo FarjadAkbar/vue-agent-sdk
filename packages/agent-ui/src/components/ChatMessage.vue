@@ -6,6 +6,7 @@ import ChatReasoning from "./ChatReasoning.vue";
 import ChatToolCall from "./ChatToolCall.vue";
 import ChatAttachments from "./ChatAttachments.vue";
 import ChatCitations from "./ChatCitations.vue";
+import ChatObject from "./ChatObject.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -33,13 +34,26 @@ const hasToolCalls = computed(() => (props.message.toolCalls?.length ?? 0) > 0);
 const hasAttachments = computed(() => (props.message.attachments?.length ?? 0) > 0);
 const hasCitations = computed(() => (props.message.citations?.length ?? 0) > 0);
 
-// Show the typing dots only before anything (reasoning / tools / text) arrives.
+// A message is "structured" when `data` is present (even `null`, the streaming
+// placeholder). Structured messages render the object renderer, not `content`.
+const isStructured = computed(() => props.message.data !== undefined);
+
+const hasRenderableData = computed(() => {
+  const d = props.message.data;
+  if (d === null || d === undefined) return false;
+  if (Array.isArray(d)) return d.length > 0;
+  if (typeof d === "object") return Object.keys(d as object).length > 0;
+  return true;
+});
+
+// Show the typing dots only before anything (data / reasoning / tools / text)
+// has arrived.
 const showTyping = computed(
   () =>
     isStreaming.value &&
-    !props.message.content &&
     !props.message.reasoning &&
-    !hasToolCalls.value,
+    !hasToolCalls.value &&
+    (isStructured.value ? !hasRenderableData.value : !props.message.content),
 );
 
 // Render markdown for assistant/system; keep user input verbatim.
@@ -130,9 +144,20 @@ const isError = computed(() => props.message.status === "error");
                 :call="call"
               />
 
+              <!-- Structured output -->
+              <template v-if="isStructured">
+                <div v-if="hasRenderableData" class="agent-object">
+                  <slot name="object" :data="message.data" :message="message">
+                    <ChatObject :data="message.data" />
+                  </slot>
+                </div>
+              </template>
+
               <!-- Content -->
-              <MarkdownContent v-if="message.content && useMarkdown" :content="message.content" />
-              <p v-else-if="message.content" class="whitespace-pre-wrap break-words">{{ message.content }}</p>
+              <template v-else>
+                <MarkdownContent v-if="message.content && useMarkdown" :content="message.content" />
+                <p v-else-if="message.content" class="whitespace-pre-wrap break-words">{{ message.content }}</p>
+              </template>
 
               <!-- Attachments -->
               <ChatAttachments v-if="hasAttachments" :attachments="message.attachments!" />

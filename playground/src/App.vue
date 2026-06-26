@@ -8,9 +8,20 @@ import {
   ChatError,
   useChat,
   useTheme,
+  ChatStructured,
   type ChatTransport,
   type ThemeSetting,
+  type StructuredField,
 } from "@vue-agent-sdk/ui";
+
+// Declarative layout for the structured-output schema (see server STRUCTURED_SCHEMA).
+// Pass this array to <ChatStructured> and it handles rendering the streamed JSON.
+const answerSchema: StructuredField[] = [
+  { key: "title", type: "title" },
+  { key: "summary", type: "summary" },
+  { key: "steps", type: "steps", label: "Steps", nameKey: "name", detailKey: "detail" },
+  { key: "tags", type: "tags", label: "Tags" },
+];
 
 // Theme switcher (applies a `data-theme` to <html>, persisted to localStorage).
 const { theme, setTheme } = useTheme({ default: "dark" });
@@ -28,6 +39,10 @@ const virtualized = ref(false);
 // Toggle between streaming and non-streaming requests at runtime.
 const streaming = ref(true);
 
+// Toggle structured (JSON) output. When on, the transport asks the server for
+// schema-constrained JSON and useChat parses it progressively into message.data.
+const structured = ref(false);
+
 // Talks to the Express + OpenAI backend (see playground/server/index.mjs).
 // The AbortSignal is forwarded to fetch so stop() cancels the request.
 const openaiTransport: ChatTransport = async function* (messages, { signal }) {
@@ -37,6 +52,7 @@ const openaiTransport: ChatTransport = async function* (messages, { signal }) {
     signal,
     body: JSON.stringify({
       stream: streaming.value,
+      structured: structured.value,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     }),
   });
@@ -73,6 +89,8 @@ const { messages, input, isLoading, status, error, handleSubmit, regenerate, sto
       },
     ],
     transport: openaiTransport,
+    // Getter so toggling the checkbox takes effect on the next message.
+    structuredOutput: () => structured.value,
   });
 
 // Offer "Regenerate" once the last message is a finished assistant reply.
@@ -199,6 +217,12 @@ function insertRichDemo() {
                 <input v-model="streaming" type="checkbox" class="accent-[var(--agent-primary)]" />
                 Stream
               </label>
+              <label
+                class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
+              >
+                <input v-model="structured" type="checkbox" class="accent-[var(--agent-primary)]" />
+                Structured
+              </label>
               <button
                 type="button"
                 class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
@@ -223,7 +247,17 @@ function insertRichDemo() {
             </template>
           </ChatHeader>
 
-          <ChatMessages :messages="messages" :avatars="avatars" :virtualized="virtualized" />
+          <ChatMessages :messages="messages" :avatars="avatars" :virtualized="virtualized">
+            <!-- Custom renderer for structured output. Remove this slot to fall
+                 back to the built-in <ChatObject> auto-renderer. -->
+            <template #object="{ data, message }">
+              <ChatStructured
+                :data="data"
+                :schema="answerSchema"
+                :streaming="message.status === 'streaming'"
+              />
+            </template>
+          </ChatMessages>
 
           <ChatError v-if="error" :error="error" @dismiss="dismissError" />
 
