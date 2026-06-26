@@ -1,5 +1,6 @@
 import { computed, ref, type ComputedRef, type Ref } from "vue";
 import type { ChatTransport, Message } from "../types";
+import { parsePartialJson } from "../structured";
 
 /** Overall chat lifecycle state. */
 export type ChatStatus = "idle" | "submitting" | "streaming" | "error";
@@ -14,6 +15,17 @@ export interface UseChatOptions {
   transport?: ChatTransport;
   /** Custom id generator (defaults to a random id). */
   generateId?: () => string;
+  /**
+   * Treat the assistant's streamed output as JSON (structured output).
+   *
+   * When enabled, streamed chunks are accumulated and progressively parsed
+   * into `message.data` (rendered by `<ChatObject>` / the `#object` slot)
+   * instead of `message.content`. The raw JSON text is still kept on
+   * `message.content` for reference. Leave off (default) for plain text.
+   *
+   * Pass a getter (e.g. `() => isStructured.value`) to toggle it at runtime.
+   */
+  structuredOutput?: boolean | (() => boolean);
 }
 
 export interface UseChatReturn {
@@ -74,6 +86,12 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   // Tracks the active request so stop() can abort it.
   let controller: AbortController | null = null;
 
+  function isStructured(): boolean {
+    return typeof options.structuredOutput === "function"
+      ? options.structuredOutput()
+      : Boolean(options.structuredOutput);
+  }
+
   /**
    * Pushes an assistant placeholder and drives the transport into it.
    * `userIndex` (if >= 0) is the user message whose status we mirror.
@@ -85,10 +103,14 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       return;
     }
 
+    const structured = isStructured();
     messages.value.push({
       id: generateId(),
       role: "assistant",
       content: "",
+      // `null` (not undefined) marks the message as structured so the bubble
+      // renders the object renderer instead of the raw JSON text.
+      data: structured ? null : undefined,
       createdAt: Date.now(),
       status: "streaming",
       pending: true,
@@ -101,6 +123,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     status.value = "submitting";
     error.value = null;
     let gotChunk = false;
+    let raw = "";
 
     try {
       const result = options.transport(history, { signal });
@@ -111,7 +134,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           if (userIndex >= 0) messages.value[userIndex].status = "sent";
           status.value = "streaming";
         }
-        messages.value[index].content += chunk;
+        if (structured) {
+          raw += chunk;
+          messages.value[index].content = raw;
+          const parsed = parsePartialJson(raw);
+          if (parsed !== undefined) messages.value[index].data = parsed;
+        } else {
+          messages.value[index].content += chunk;
+        }
+      }
+      // Final, strict parse once the stream completes.
+      if (structured && !signal.aborted) {
+        const finalParsed = parsePartialJson(raw);
+        if (finalParsed !== undefined) messages.value[index].data = finalParsed;
       }
       if (userIndex >= 0) messages.value[userIndex].status = "sent";
       messages.value[index].status = signal.aborted ? "stopped" : "sent";

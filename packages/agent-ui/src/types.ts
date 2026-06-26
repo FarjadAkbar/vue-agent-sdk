@@ -52,6 +52,13 @@ export interface Message {
   role: ChatRole;
   /** Text content of the message (rendered as markdown for the assistant). */
   content: string;
+  /**
+   * Parsed structured output. When set, the message renders as structured
+   * data (via `<ChatObject>` or a custom `#object` slot) instead of `content`.
+   * During streaming with structured output enabled, this is progressively
+   * populated from a partial-JSON parse of the streamed buffer.
+   */
+  data?: unknown;
   /** Optional creation timestamp. */
   createdAt?: Date | number;
   /** Current lifecycle status (drives status badges + typing indicator). */
@@ -71,6 +78,43 @@ export interface Message {
    * compatibility; still set to `true` while an assistant reply streams.
    */
   pending?: boolean;
+}
+
+/**
+ * How a single field of structured output should be rendered by
+ * `<ChatStructured>`.
+ *
+ * - `title`   — prominent heading.
+ * - `summary` — muted intro paragraph.
+ * - `text`    — labelled single value.
+ * - `steps`   — ordered, numbered stepper (array of objects).
+ * - `list`    — bulleted list (array of primitives).
+ * - `tags`    — chips (array of primitives).
+ * - `table`   — table (array of flat objects).
+ */
+export type StructuredFieldType =
+  | "title"
+  | "summary"
+  | "text"
+  | "steps"
+  | "list"
+  | "tags"
+  | "table";
+
+/** A declarative description of one field in a structured-output object. */
+export interface StructuredField {
+  /** Property name in the structured data object. */
+  key: string;
+  /** How to render the value. Defaults to "text" (or inferred when omitted). */
+  type?: StructuredFieldType;
+  /** Optional section label shown above the value. */
+  label?: string;
+  /** For `steps`: property holding each step's title. Defaults to "name". */
+  nameKey?: string;
+  /** For `steps`: property holding each step's detail. Defaults to "detail". */
+  detailKey?: string;
+  /** For `table`: explicit column order. Inferred from rows when omitted. */
+  columns?: string[];
 }
 
 /** Per-request options handed to a {@link ChatTransport}. */

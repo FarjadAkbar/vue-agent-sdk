@@ -150,6 +150,9 @@ watch(
             <template v-if="$slots.avatar" #avatar="slotProps">
               <slot name="avatar" v-bind="slotProps" />
             </template>
+            <template v-if="$slots.object" #object="slotProps">
+              <slot name="object" v-bind="slotProps" />
+            </template>
             <template v-if="$slots.message" #default="slotProps">
               <slot name="message" v-bind="slotProps" />
             </template>
@@ -182,6 +185,9 @@ watch(
         >
           <template v-if="$slots.avatar" #avatar="slotProps">
             <slot name="avatar" v-bind="slotProps" />
+          </template>
+          <template v-if="$slots.object" #object="slotProps">
+            <slot name="object" v-bind="slotProps" />
           </template>
           <template v-if="$slots.message" #default="slotProps">
             <slot name="message" v-bind="slotProps" />

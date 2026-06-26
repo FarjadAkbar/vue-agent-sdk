@@ -17,12 +17,40 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, model: MODEL, hasKey: Boolean(apiKey) });
 });
 
+// Schema used for the structured-output demo. The model is forced to return
+// JSON matching this shape; the client parses it progressively into a card.
+const STRUCTURED_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string", description: "Short title for the answer." },
+    summary: { type: "string", description: "One or two sentence overview." },
+    steps: {
+      type: "array",
+      description: "Ordered list of actionable steps.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          detail: { type: "string" },
+        },
+        required: ["name", "detail"],
+      },
+    },
+    tags: { type: "array", items: { type: "string" } },
+  },
+  required: ["title", "summary", "steps", "tags"],
+};
+
 /**
  * POST /api/chat
- * Body: { messages: { role, content }[], stream?: boolean }
+ * Body: { messages: { role, content }[], stream?: boolean, structured?: boolean }
  *
  * - stream === true (default): replies with plain UTF-8 text chunks.
  * - stream === false: replies with JSON { content }.
+ * - structured === true: forces JSON output matching STRUCTURED_SCHEMA
+ *   (the streamed/returned text is JSON the client parses progressively).
  */
 app.post("/api/chat", async (req, res) => {
   if (!client) {
@@ -33,6 +61,7 @@ app.post("/api/chat", async (req, res) => {
 
   const incoming = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const wantStream = req.body?.stream !== false;
+  const wantStructured = req.body?.structured === true;
   const messages = incoming
     .filter((m) => m && typeof m.content === "string")
     .map((m) => ({
@@ -48,9 +77,21 @@ app.post("/api/chat", async (req, res) => {
   if (messages[0].role !== "system") {
     messages.unshift({
       role: "system",
-      content: "You are a helpful, concise AI assistant built with the Vue Agent SDK.",
+      content: wantStructured
+        ? "You are a helpful assistant built with the Vue Agent SDK. Answer the user's request as a structured plan that matches the provided JSON schema. Always include a few concrete steps and relevant tags."
+        : "You are a helpful, concise AI assistant built with the Vue Agent SDK.",
     });
   }
+
+  // Forces JSON output matching STRUCTURED_SCHEMA when structured mode is on.
+  const responseFormat = wantStructured
+    ? {
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "structured_answer", schema: STRUCTURED_SCHEMA, strict: true },
+        },
+      }
+    : {};
 
   // Abort the OpenAI request only if the *client* disconnects mid-response
   // (e.g. user hit Stop). Listening on `res` (not `req`) avoids aborting when
@@ -64,7 +105,7 @@ app.post("/api/chat", async (req, res) => {
     // --- Non-streaming path ---
     if (!wantStream) {
       const completion = await client.chat.completions.create(
-        { model: MODEL, messages, stream: false },
+        { model: MODEL, messages, stream: false, ...responseFormat },
         { signal: ac.signal },
       );
       return res.json({ content: completion.choices?.[0]?.message?.content ?? "" });
@@ -76,7 +117,7 @@ app.post("/api/chat", async (req, res) => {
     res.setHeader("X-Accel-Buffering", "no");
 
     const stream = await client.chat.completions.create(
-      { model: MODEL, messages, stream: true },
+      { model: MODEL, messages, stream: true, ...responseFormat },
       { signal: ac.signal },
     );
 
