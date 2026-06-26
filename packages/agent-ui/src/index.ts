@@ -1,10 +1,15 @@
 import "./styles/theme.css";
 
+export { default as ChatLayout } from "./components/ChatLayout.vue";
+export { default as ChatSidebar } from "./components/ChatSidebar.vue";
+export { default as ChatSidebarToggle } from "./components/ChatSidebarToggle.vue";
+export { default as ChatConversationList } from "./components/ChatConversationList.vue";
 export { default as ChatWindow } from "./components/ChatWindow.vue";
 export { default as ChatHeader } from "./components/ChatHeader.vue";
 export { default as ChatMessages } from "./components/ChatMessages.vue";
 export { default as ChatMessage } from "./components/ChatMessage.vue";
 export { default as ChatInput } from "./components/ChatInput.vue";
+export { default as ChatAttachment } from "./components/ChatAttachment.vue";
 export { default as ChatError } from "./components/ChatError.vue";
 // Backwards-compatible alias for the old name.
 export { default as ChatComposer } from "./components/ChatInput.vue";
@@ -26,7 +31,23 @@ export type {
   UseChatOptions,
   UseChatReturn,
   ChatStatus,
+  SendOptions,
 } from "./composables/useChat";
+
+export {
+  parseSize,
+  isAllowed,
+  formatBytes,
+  ChatInputAttachmentKey,
+} from "./attachment";
+export type {
+  ChatInputAttachmentApi,
+  AttachmentRejection,
+  AttachmentRejectReason,
+} from "./attachment";
+
+export { useChatLayout, ChatLayoutKey } from "./layout";
+export type { ChatLayoutApi } from "./layout";
 export { useLenis } from "./composables/useLenis";
 export type { UseLenisOptions } from "./composables/useLenis";
 export { useTheme } from "./composables/useTheme";
@@ -49,4 +70,5 @@ export type {
   Citation,
   StructuredField,
   StructuredFieldType,
+  Conversation,
 } from "./types";

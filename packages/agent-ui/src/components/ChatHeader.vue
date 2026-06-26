@@ -41,6 +41,8 @@ const statusText = computed(() => {
 
 <template>
   <header class="flex shrink-0 items-center gap-3 border-b border-[var(--agent-border)] px-5 py-3.5">
+    <slot name="leading" />
+
     <slot name="status">
       <span class="flex size-2.5 rounded-full" :class="dotClass" />
     </slot>

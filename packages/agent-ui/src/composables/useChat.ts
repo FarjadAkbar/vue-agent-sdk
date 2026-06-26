@@ -1,6 +1,12 @@
 import { computed, ref, type ComputedRef, type Ref } from "vue";
-import type { ChatTransport, Message } from "../types";
+import type { Attachment, ChatTransport, Message } from "../types";
 import { parsePartialJson } from "../structured";
+
+/** Extra options when sending a message. */
+export interface SendOptions {
+  /** Attachments to include on the user message (e.g. from <ChatAttachment>). */
+  attachments?: Attachment[];
+}
 
 /** Overall chat lifecycle state. */
 export type ChatStatus = "idle" | "submitting" | "streaming" | "error";
@@ -37,9 +43,9 @@ export interface UseChatReturn {
   status: Ref<ChatStatus>;
   error: Ref<Error | null>;
   /** Append a user message and trigger the transport for an assistant reply. */
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, options?: SendOptions) => Promise<void>;
   /** Convenience for forms: sends the current `input` value. */
-  handleSubmit: () => Promise<void>;
+  handleSubmit: (options?: SendOptions) => Promise<void>;
   /** Re-run the transport for the most recent user message. */
   regenerate: () => Promise<void>;
   /** Abort an in-flight generation. The partial reply is kept. */
@@ -167,15 +173,17 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     }
   }
 
-  async function sendMessage(content: string): Promise<void> {
+  async function sendMessage(content: string, options: SendOptions = {}): Promise<void> {
     const text = content.trim();
-    if (!text || isLoading.value) return;
+    const attachments = options.attachments ?? [];
+    if ((!text && attachments.length === 0) || isLoading.value) return;
 
     error.value = null;
     messages.value.push({
       id: generateId(),
       role: "user",
       content: text,
+      attachments: attachments.length ? attachments : undefined,
       createdAt: Date.now(),
       status: "sending",
     });
@@ -184,10 +192,10 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     await runAssistant(history, userIndex);
   }
 
-  async function handleSubmit(): Promise<void> {
+  async function handleSubmit(options: SendOptions = {}): Promise<void> {
     const text = input.value;
     input.value = "";
-    await sendMessage(text);
+    await sendMessage(text, options);
   }
 
   async function regenerate(): Promise<void> {
