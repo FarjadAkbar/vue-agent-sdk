@@ -1,0 +1,254 @@
+/**
+ * Design tokens for @vue-agent-sdk/ui.
+ *
+ * These are plain CSS custom properties, so the stylesheet works with or
+ * without Tailwind. Override any of them in your own app to re-theme the
+ * components. A `.dark` class (or `[data-theme="dark"]`) flips to dark mode.
+ */
+
+:root,
+[data-theme="light"] {
+  --agent-bg: #ffffff;
+  --agent-surface: #f6f7f9;
+  --agent-surface-2: #e9ebef;
+  --agent-fg: #0f172a;
+  --agent-muted: #64748b;
+  --agent-border: #e2e8f0;
+  --agent-primary: #6d5efc;
+  --agent-primary-fg: #ffffff;
+  --agent-radius: 1rem;
+}
+
+.dark,
+[data-theme="dark"] {
+  --agent-bg: #0b0c10;
+  --agent-surface: #15171e;
+  --agent-surface-2: #232631;
+  --agent-fg: #e8eaf0;
+  --agent-muted: #8b90a0;
+  --agent-border: #262932;
+  --agent-primary: #7c6cff;
+  --agent-primary-fg: #ffffff;
+}
+
+/* Built-in accent presets (dark-based). Override any --agent-* var to theme. */
+[data-theme="emerald"] {
+  --agent-bg: #07120e;
+  --agent-surface: #0f1f18;
+  --agent-surface-2: #1b2f25;
+  --agent-fg: #e6f5ee;
+  --agent-muted: #7ea899;
+  --agent-border: #1d3329;
+  --agent-primary: #10b981;
+  --agent-primary-fg: #04140d;
+}
+
+[data-theme="rose"] {
+  --agent-bg: #fbf7f8;
+  --agent-surface: #fdeef1;
+  --agent-surface-2: #f8dbe1;
+  --agent-fg: #2a1820;
+  --agent-muted: #9d6b78;
+  --agent-border: #f2cdd5;
+  --agent-primary: #e11d6b;
+  --agent-primary-fg: #ffffff;
+}
+
+/* Typing indicator dots used by <ChatMessage>. */
+.agent-typing-dot {
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+  background: var(--agent-muted);
+  animation: agent-typing 1s ease-in-out infinite;
+}
+
+@keyframes agent-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* Slim, themed scrollbar for the message list. */
+.agent-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--agent-surface-2) transparent;
+}
+.agent-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.agent-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--agent-surface-2);
+  border-radius: 9999px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Markdown content (rendered via v-html, so styled by class here).   */
+/* ------------------------------------------------------------------ */
+.agent-markdown {
+  min-width: 0;
+  word-break: break-word;
+}
+.agent-markdown > :first-child {
+  margin-top: 0;
+}
+.agent-markdown > :last-child {
+  margin-bottom: 0;
+}
+.agent-markdown p {
+  margin: 0.5em 0;
+}
+.agent-markdown h1,
+.agent-markdown h2,
+.agent-markdown h3,
+.agent-markdown h4 {
+  margin: 0.8em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.agent-markdown h1 {
+  font-size: 1.4em;
+}
+.agent-markdown h2 {
+  font-size: 1.25em;
+}
+.agent-markdown h3 {
+  font-size: 1.1em;
+}
+.agent-markdown ul,
+.agent-markdown ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+.agent-markdown li {
+  margin: 0.2em 0;
+}
+.agent-markdown a {
+  color: var(--agent-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.agent-markdown blockquote {
+  margin: 0.5em 0;
+  padding: 0.25em 0.9em;
+  border-left: 3px solid var(--agent-border);
+  color: var(--agent-muted);
+}
+.agent-markdown hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid var(--agent-border);
+}
+.agent-markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+/* Inline code */
+.agent-markdown :not(pre) > code {
+  padding: 0.15em 0.4em;
+  font-size: 0.875em;
+  border-radius: 0.35rem;
+  background: var(--agent-surface-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Tables */
+.agent-markdown table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.9em;
+}
+.agent-markdown th,
+.agent-markdown td {
+  border: 1px solid var(--agent-border);
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+.agent-markdown th {
+  background: var(--agent-surface-2);
+  font-weight: 600;
+}
+
+/* Fenced code blocks (custom renderer in markdown.ts) */
+.agent-code {
+  margin: 0.6em 0;
+  overflow: hidden;
+  border: 1px solid var(--agent-border);
+  border-radius: 0.6rem;
+  background: #0d1117; /* matches github-dark hljs theme */
+}
+.agent-code__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.5rem 0.35rem 0.75rem;
+  background: var(--agent-surface-2);
+  border-bottom: 1px solid var(--agent-border);
+}
+.agent-code__lang {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--agent-muted);
+}
+.agent-code__copy {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.35rem;
+  color: var(--agent-muted);
+  background: transparent;
+  border: 1px solid var(--agent-border);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.agent-code__copy:hover {
+  color: var(--agent-fg);
+  background: var(--agent-bg);
+}
+.agent-code__copy.is-copied {
+  color: #34d399;
+  border-color: #34d39955;
+}
+.agent-code pre {
+  margin: 0;
+  padding: 0.85rem;
+  overflow-x: auto;
+  font-size: 0.85em;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Tool-call payloads */
+.agent-tool-pre {
+  margin: 0;
+  padding: 0.6rem;
+  overflow-x: auto;
+  border-radius: 0.4rem;
+  background: var(--agent-surface-2);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* KaTeX: allow long equations to scroll instead of overflowing the bubble. */
+.agent-markdown .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0;
+}

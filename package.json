@@ -1,0 +1,17 @@
+{
+  "name": "vue-agent-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Vercel-AI-SDK-style toolkit for building AI agent chat UIs in Vue 3, with Tailwind styling and Lenis smooth scrolling.",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter playground dev",
+    "build": "pnpm --filter @vue-agent-sdk/ui build && pnpm --filter playground build",
+    "build:ui": "pnpm --filter @vue-agent-sdk/ui build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.25.0"
+}
