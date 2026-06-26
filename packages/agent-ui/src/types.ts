@@ -117,6 +117,18 @@ export interface StructuredField {
   columns?: string[];
 }
 
+/** A saved conversation, rendered by `<ChatConversationList>` in the sidebar. */
+export interface Conversation {
+  /** Stable unique id. */
+  id: string;
+  /** Display title (e.g. derived from the first user message). */
+  title: string;
+  /** Last-updated time, used for ordering / relative labels. */
+  updatedAt?: Date | number;
+  /** Optional one-line preview of the last message. */
+  preview?: string;
+}
+
 /** Per-request options handed to a {@link ChatTransport}. */
 export interface ChatTransportOptions {
   /** Aborts when the consumer calls `stop()`. Forward it to `fetch`. */

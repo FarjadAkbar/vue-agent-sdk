@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
+  ChatLayout,
+  ChatSidebar,
+  ChatSidebarToggle,
+  ChatConversationList,
   ChatWindow,
   ChatHeader,
   ChatMessages,
@@ -9,9 +13,13 @@ import {
   useChat,
   useTheme,
   ChatStructured,
+  ChatAttachment as Attachment,
   type ChatTransport,
   type ThemeSetting,
   type StructuredField,
+  type SendOptions,
+  type Conversation,
+  type Message,
 } from "@vue-agent-sdk/ui";
 
 // Declarative layout for the structured-output schema (see server STRUCTURED_SCHEMA).
@@ -26,6 +34,62 @@ const answerSchema: StructuredField[] = [
 // Theme switcher (applies a `data-theme` to <html>, persisted to localStorage).
 const { theme, setTheme } = useTheme({ default: "dark" });
 const THEMES: ThemeSetting[] = ["system", "light", "dark", "emerald", "rose"];
+
+// --- Conversations (sidebar) ------------------------------------------------
+interface Convo {
+  id: string;
+  title: string;
+  messages: Message[];
+  updatedAt: number;
+}
+
+const uid = () => Math.random().toString(36).slice(2);
+
+function welcome(): Message {
+  return {
+    id: uid(),
+    role: "assistant",
+    content: "Hey! I'm a demo agent built with the Vue Agent SDK. Ask me anything.",
+    status: "sent",
+  };
+}
+
+const conversations = ref<Convo[]>([
+  { id: uid(), title: "New chat", messages: [welcome()], updatedAt: Date.now() },
+  {
+    id: uid(),
+    title: "Deploying to production",
+    updatedAt: Date.now() - 60_000,
+    messages: [
+      { id: uid(), role: "user", content: "How do I deploy a Vue app?", status: "sent" },
+      {
+        id: uid(),
+        role: "assistant",
+        content: "Build with `vite build`, then host the `dist/` folder on any static host.",
+        status: "sent",
+      },
+    ],
+  },
+  {
+    id: uid(),
+    title: "Coffee brewing tips",
+    updatedAt: Date.now() - 120_000,
+    messages: [
+      { id: uid(), role: "user", content: "Best ratio for pour-over?", status: "sent" },
+      { id: uid(), role: "assistant", content: "Start at 1:16 coffee-to-water by weight.", status: "sent" },
+    ],
+  },
+]);
+
+const activeId = ref(conversations.value[0].id);
+const active = computed(() => conversations.value.find((c) => c.id === activeId.value));
+
+// Conversations for the sidebar list, most-recent first.
+const conversationItems = computed<Conversation[]>(() =>
+  [...conversations.value]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt })),
+);
 
 // Custom avatars (passed into <ChatMessages :avatars>).
 const avatars = {
@@ -78,20 +142,64 @@ const openaiTransport: ChatTransport = async function* (messages, { signal }) {
   }
 };
 
-const { messages, input, isLoading, status, error, handleSubmit, regenerate, stop, clear } =
-  useChat({
-    initialMessages: [
-      {
-        id: "welcome",
-        role: "assistant",
-        content: "Hey! I'm a demo agent built with the Vue Agent SDK. Ask me anything.",
-        status: "sent",
-      },
-    ],
-    transport: openaiTransport,
-    // Getter so toggling the checkbox takes effect on the next message.
-    structuredOutput: () => structured.value,
-  });
+const { messages, input, isLoading, status, error, handleSubmit, regenerate, stop } = useChat({
+  initialMessages: conversations.value[0].messages,
+  transport: openaiTransport,
+  // Getter so toggling the checkbox takes effect on the next message.
+  structuredOutput: () => structured.value,
+});
+
+// Keep the active conversation's title + timestamp in sync as it changes.
+watch(
+  messages,
+  () => {
+    const conv = active.value;
+    if (!conv) return;
+    conv.updatedAt = Date.now();
+    if (conv.title === "New chat") {
+      const firstUser = messages.value.find((m) => m.role === "user");
+      if (firstUser?.content) {
+        conv.title = firstUser.content.slice(0, 40) + (firstUser.content.length > 40 ? "…" : "");
+      }
+    }
+  },
+  { deep: true },
+);
+
+function selectConversation(id: string) {
+  const conv = conversations.value.find((c) => c.id === id);
+  if (!conv || conv.id === activeId.value) return;
+  stop();
+  error.value = null;
+  activeId.value = id;
+  // Same array reference, so useChat mutations persist back to the conversation.
+  messages.value = conv.messages;
+}
+
+function newChat() {
+  stop();
+  error.value = null;
+  const conv: Convo = { id: uid(), title: "New chat", messages: [welcome()], updatedAt: Date.now() };
+  conversations.value.unshift(conv);
+  activeId.value = conv.id;
+  messages.value = conv.messages;
+}
+
+function deleteConversation(id: string) {
+  const idx = conversations.value.findIndex((c) => c.id === id);
+  if (idx === -1) return;
+  conversations.value.splice(idx, 1);
+  if (activeId.value === id) {
+    if (conversations.value.length) selectConversation(conversations.value[0].id);
+    else newChat();
+  }
+}
+
+function clearActive() {
+  stop();
+  error.value = null;
+  messages.value.splice(0, messages.value.length);
+}
 
 // Offer "Regenerate" once the last message is a finished assistant reply.
 const canRegenerate = computed(() => {
@@ -101,6 +209,19 @@ const canRegenerate = computed(() => {
 
 function dismissError() {
   error.value = null;
+}
+
+// ChatInput emits staged attachments on submit; forward them to useChat.
+function onSubmit(attachments: SendOptions["attachments"]) {
+  handleSubmit({ attachments });
+}
+
+function onAttachmentReject({ file, reason }: { file: File; reason: string }) {
+  error.value = new Error(
+    reason === "size"
+      ? `"${file.name}" is too large (max 2 MB).`
+      : `"${file.name}" is not an allowed file type.`,
+  );
 }
 
 // Inject a crafted message that exercises every rich-content feature, since
@@ -184,94 +305,124 @@ function insertRichDemo() {
 </script>
 
 <template>
-  <main class="flex min-h-full items-center justify-center p-4 sm:p-8">
-    <div class="flex w-full max-w-2xl flex-col gap-4">
-      <div class="text-center">
-        <h1 class="text-2xl font-bold tracking-tight">Vue Agent SDK</h1>
-        <p class="mt-1 text-sm text-[var(--agent-muted)]">
-          Composable building blocks · slot them into &lt;ChatWindow&gt;
-        </p>
-      </div>
+  <ChatLayout class="h-screen">
+    <!-- Sidebar: New session + Recent conversations -->
+    <ChatSidebar>
+      <template #header>
+        <button
+          type="button"
+          class="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--agent-primary)] px-3 py-2 text-sm font-medium text-[var(--agent-primary-fg)] transition-opacity hover:opacity-90"
+          @click="newChat"
+        >
+          <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          New session
+        </button>
+      </template>
 
-      <div class="h-[70vh] min-h-[480px]">
-        <ChatWindow>
-          <ChatHeader title="Demo Agent" :status="status">
-            <template #actions>
-              <select
-                :value="theme"
-                class="rounded-lg border border-[var(--agent-border)] bg-[var(--agent-surface)] px-1.5 py-1 text-xs text-[var(--agent-fg)]"
-                aria-label="Theme"
-                @change="setTheme(($event.target as HTMLSelectElement).value)"
-              >
-                <option v-for="t in THEMES" :key="t" :value="t">{{ t }}</option>
-              </select>
-              <label
-                class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
-              >
-                <input v-model="virtualized" type="checkbox" class="accent-[var(--agent-primary)]" />
-                Virtualize
-              </label>
-              <label
-                class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
-              >
-                <input v-model="streaming" type="checkbox" class="accent-[var(--agent-primary)]" />
-                Stream
-              </label>
-              <label
-                class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
-              >
-                <input v-model="structured" type="checkbox" class="accent-[var(--agent-primary)]" />
-                Structured
-              </label>
-              <button
-                type="button"
-                class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
-                @click="bulkAdd"
-              >
-                Bulk +30
-              </button>
-              <button
-                type="button"
-                class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
-                @click="insertRichDemo"
-              >
-                Rich demo
-              </button>
-              <button
-                type="button"
-                class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
-                @click="clear"
-              >
-                Clear
-              </button>
-            </template>
-          </ChatHeader>
+      <ChatConversationList
+        label="Recent conversations"
+        :conversations="conversationItems"
+        :active-id="activeId"
+        deletable
+        @select="selectConversation"
+        @delete="deleteConversation"
+      />
 
-          <ChatMessages :messages="messages" :avatars="avatars" :virtualized="virtualized">
-            <!-- Custom renderer for structured output. Remove this slot to fall
-                 back to the built-in <ChatObject> auto-renderer. -->
-            <template #object="{ data, message }">
-              <ChatStructured
-                :data="data"
-                :schema="answerSchema"
-                :streaming="message.status === 'streaming'"
-              />
-            </template>
-          </ChatMessages>
+      <template #footer>
+        <label class="flex items-center justify-between gap-2 text-xs text-[var(--agent-muted)]">
+          Theme
+          <select
+            :value="theme"
+            class="rounded-lg border border-[var(--agent-border)] bg-[var(--agent-bg)] px-1.5 py-1 text-xs text-[var(--agent-fg)]"
+            aria-label="Theme"
+            @change="setTheme(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="t in THEMES" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </label>
+      </template>
+    </ChatSidebar>
 
-          <ChatError v-if="error" :error="error" @dismiss="dismissError" />
+    <!-- Main chat column -->
+    <ChatWindow class="min-w-0 flex-1 !rounded-none !border-0">
+      <ChatHeader :title="active?.title ?? 'Demo Agent'" :status="status">
+        <template #leading>
+          <ChatSidebarToggle />
+        </template>
+        <template #actions>
+          <label
+            class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
+          >
+            <input v-model="virtualized" type="checkbox" class="accent-[var(--agent-primary)]" />
+            Virtualize
+          </label>
+          <label
+            class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
+          >
+            <input v-model="streaming" type="checkbox" class="accent-[var(--agent-primary)]" />
+            Stream
+          </label>
+          <label
+            class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
+          >
+            <input v-model="structured" type="checkbox" class="accent-[var(--agent-primary)]" />
+            Structured
+          </label>
+          <button
+            type="button"
+            class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
+            @click="bulkAdd"
+          >
+            Bulk +30
+          </button>
+          <button
+            type="button"
+            class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
+            @click="insertRichDemo"
+          >
+            Rich demo
+          </button>
+          <button
+            type="button"
+            class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
+            @click="clearActive"
+          >
+            Clear
+          </button>
+        </template>
+      </ChatHeader>
 
-          <ChatInput
-            v-model="input"
-            :loading="isLoading"
-            :can-regenerate="canRegenerate"
-            placeholder="Ask the agent something..."
-            @submit="handleSubmit"
-            @stop="stop"
-            @regenerate="regenerate"
+      <ChatMessages :messages="messages" :avatars="avatars" :virtualized="virtualized">
+        <!-- Custom renderer for structured output. Remove this slot to fall
+             back to the built-in <ChatObject> auto-renderer. -->
+        <template #object="{ data, message }">
+          <ChatStructured
+            :data="data"
+            :schema="answerSchema"
+            :streaming="message.status === 'streaming'"
           />
-        </ChatWindow>
-      </div>
-    </div>
-  </main>
+        </template>
+      </ChatMessages>
+
+      <ChatError v-if="error" :error="error" @dismiss="dismissError" />
+
+      <ChatInput
+        v-model="input"
+        :loading="isLoading"
+        :can-regenerate="canRegenerate"
+        placeholder="Ask the agent something..."
+        @submit="onSubmit"
+        @stop="stop"
+        @regenerate="regenerate"
+      >
+        <Attachment
+          :allowed="['.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']"
+          max-size="2mb"
+          @reject="onAttachmentReject"
+        />
+      </ChatInput>
+    </ChatWindow>
+  </ChatLayout>
 </template>
