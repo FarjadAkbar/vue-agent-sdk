@@ -22,6 +22,11 @@ export { default as ChatAttachments } from "./components/ChatAttachments.vue";
 export { default as ChatCitations } from "./components/ChatCitations.vue";
 export { default as ChatObject } from "./components/ChatObject.vue";
 export { default as ChatStructured } from "./components/ChatStructured.vue";
+export { default as ChatSuggestion } from "./components/ChatSuggestion.vue";
+
+// Connectors (Composio apps + custom MCP).
+export { default as ChatConnectors } from "./components/ChatConnectors.vue";
+export { default as ChatConnectorsModal } from "./components/ChatConnectorsModal.vue";
 
 export { renderMarkdown } from "./markdown";
 export { parsePartialJson } from "./structured";
@@ -48,6 +53,13 @@ export type {
 
 export { useChatLayout, ChatLayoutKey } from "./layout";
 export type { ChatLayoutApi } from "./layout";
+
+export { useConnectors, injectConnectors, ConnectorsKey } from "./connectors";
+export type {
+  ConnectorsStore,
+  UseConnectorsOptions,
+  CustomMcp,
+} from "./connectors";
 export { useLenis } from "./composables/useLenis";
 export type { UseLenisOptions } from "./composables/useLenis";
 export { useTheme } from "./composables/useTheme";
@@ -71,4 +83,7 @@ export type {
   StructuredField,
   StructuredFieldType,
   Conversation,
+  ConnectorApp,
+  ConnectorStatus,
+  Suggestion,
 } from "./types";

@@ -12,28 +12,54 @@ import {
   ChatError,
   useChat,
   useTheme,
+  useConnectors,
   ChatStructured,
   ChatAttachment as Attachment,
+  ChatConnectors as Connectors,
+  ChatConnectorsModal as ConnectorsModal,
   type ChatTransport,
   type ThemeSetting,
   type StructuredField,
   type SendOptions,
   type Conversation,
+  type ConnectorApp,
   type Message,
 } from "@vue-agent-sdk/ui";
 
-// Declarative layout for the structured-output schema (see server STRUCTURED_SCHEMA).
-// Pass this array to <ChatStructured> and it handles rendering the streamed JSON.
+// Structured-output schema: the agent always streams this shape, rendered as
+// collapsible accordion steps + connector suggestion cards + a final answer.
 const answerSchema: StructuredField[] = [
-  { key: "title", type: "title" },
-  { key: "summary", type: "summary" },
-  { key: "steps", type: "steps", label: "Steps", nameKey: "name", detailKey: "detail" },
-  { key: "tags", type: "tags", label: "Tags" },
+  { key: "thinking", type: "accordion", label: "Thinking", icon: "thinking" },
+  { key: "reasoning", type: "accordion", label: "Reasoning", icon: "reasoning" },
+  { key: "looking", type: "accordion", label: "Looking for tools", icon: "looking" },
+  { key: "suggestions", type: "suggestions", label: "Suggested connectors" },
+  { key: "response", type: "markdown" },
 ];
 
 // Theme switcher (applies a `data-theme` to <html>, persisted to localStorage).
 const { theme, setTheme } = useTheme({ default: "dark" });
 const THEMES: ThemeSetting[] = ["system", "light", "dark", "emerald", "rose"];
+
+// --- Connectors (Composio apps + custom MCP) --------------------------------
+// Mock Composio catalog. In a real app this comes from the Composio API and
+// `onConnect` kicks off the OAuth / API-key flow.
+const composioApps: ConnectorApp[] = [
+  { id: "browser", name: "My Browser", description: "Access the web on your own browser", kind: "connector" },
+  { id: "gmail", name: "Gmail", description: "Draft replies, search your inbox, summarize threads", kind: "connector", requiresAuth: true },
+  { id: "github", name: "GitHub", description: "Manage repositories and track code changes", kind: "connector", requiresAuth: true },
+  { id: "instagram", name: "Instagram", description: "Generate and publish Posts, Stories, or Reels", kind: "connector", requiresAuth: true },
+  { id: "googledrive", name: "Google Drive", description: "Access files and manage documents", kind: "connector", requiresAuth: true },
+  { id: "metaads", name: "Meta Ads Manager", description: "Automate ad insights and optimization", kind: "connector", requiresAuth: true },
+  { id: "googlecalendar", name: "Google Calendar", description: "Understand your schedule and manage events", kind: "connector", requiresAuth: true },
+  { id: "notion", name: "Notion", description: "Search workspace content and automate workflows", kind: "connector", requiresAuth: true },
+  { id: "heygen", name: "HeyGen", description: "Generate AI avatar videos with voiceover", kind: "connector", requiresAuth: true },
+];
+
+const connectors = useConnectors({
+  apps: composioApps,
+  connected: ["instagram"],
+  custom: true,
+});
 
 // --- Conversations (sidebar) ------------------------------------------------
 interface Convo {
@@ -49,7 +75,7 @@ function welcome(): Message {
   return {
     id: uid(),
     role: "assistant",
-    content: "Hey! I'm a demo agent built with the Vue Agent SDK. Ask me anything.",
+    content: "Hey! I'm a demo agent built with the Vue Agent SDK. Try: \"make a promotional video\".",
     status: "sent",
   };
 }
@@ -58,25 +84,11 @@ const conversations = ref<Convo[]>([
   { id: uid(), title: "New chat", messages: [welcome()], updatedAt: Date.now() },
   {
     id: uid(),
-    title: "Deploying to production",
+    title: "Promotional video with HeyGen",
     updatedAt: Date.now() - 60_000,
     messages: [
-      { id: uid(), role: "user", content: "How do I deploy a Vue app?", status: "sent" },
-      {
-        id: uid(),
-        role: "assistant",
-        content: "Build with `vite build`, then host the `dist/` folder on any static host.",
-        status: "sent",
-      },
-    ],
-  },
-  {
-    id: uid(),
-    title: "Coffee brewing tips",
-    updatedAt: Date.now() - 120_000,
-    messages: [
-      { id: uid(), role: "user", content: "Best ratio for pour-over?", status: "sent" },
-      { id: uid(), role: "assistant", content: "Start at 1:16 coffee-to-water by weight.", status: "sent" },
+      { id: uid(), role: "user", content: "Generate a promotional video", status: "sent" },
+      { id: uid(), role: "assistant", content: "I'll need the HeyGen connector for that.", status: "sent" },
     ],
   },
 ]);
@@ -84,72 +96,133 @@ const conversations = ref<Convo[]>([
 const activeId = ref(conversations.value[0].id);
 const active = computed(() => conversations.value.find((c) => c.id === activeId.value));
 
-// Conversations for the sidebar list, most-recent first.
 const conversationItems = computed<Conversation[]>(() =>
   [...conversations.value]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt })),
 );
 
-// Custom avatars (passed into <ChatMessages :avatars>).
 const avatars = {
   user: "https://api.dicebear.com/9.x/thumbs/svg?seed=you",
   assistant: "https://api.dicebear.com/9.x/bottts/svg?seed=agent",
 };
 
-// Toggle virtualization for long chats.
 const virtualized = ref(false);
 
-// Toggle between streaming and non-streaming requests at runtime.
-const streaming = ref(true);
+// Connector the agent is waiting on before it can continue (stop-ask-continue).
+const awaitingConnector = ref<string | null>(null);
 
-// Toggle structured (JSON) output. When on, the transport asks the server for
-// schema-constrained JSON and useChat parses it progressively into message.data.
-const structured = ref(false);
+const awaitingApp = computed(() =>
+  awaitingConnector.value ? composioApps.find((a) => a.id === awaitingConnector.value) : undefined,
+);
 
-// Talks to the Express + OpenAI backend (see playground/server/index.mjs).
-// The AbortSignal is forwarded to fetch so stop() cancels the request.
-const openaiTransport: ChatTransport = async function* (messages, { signal }) {
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal,
-    body: JSON.stringify({
-      stream: streaming.value,
-      structured: structured.value,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    }),
-  });
+// True once the awaited connector is connected -> we can resume the generation.
+const canContinue = computed(
+  () =>
+    !!awaitingConnector.value &&
+    connectors.isConnected(awaitingConnector.value) &&
+    !isLoading.value,
+);
 
-  if (!res.ok) {
-    const detail = await res.json().catch(() => null);
-    throw new Error(detail?.error ?? `Request failed with status ${res.status}`);
+function answerFor(q: string): string {
+  if (/vue|deploy/.test(q)) return "Build with `vite build` and host the `dist/` folder on any static host.";
+  if (/coffee/.test(q)) return "Start around a **1:16** coffee-to-water ratio and adjust to taste.";
+  return "Here's a concise answer based on what you asked. Connect tools from the 🔗 menu to unlock more capabilities.";
+}
+
+function buildAnswer(query: string): Record<string, unknown> {
+  const q = query.toLowerCase();
+  const needsVideo = /(video|heygen|promo|reel|avatar|clip)/.test(q);
+  const heyConnected = connectors.isConnected("heygen");
+
+  if (needsVideo && !heyConnected) {
+    return {
+      thinking:
+        "The user wants to create a promotional video. Let me break this into steps and figure out which tool can render it.",
+      reasoning:
+        "Generating a video needs a dedicated avatar/voiceover tool. I don't have one connected yet, so I'll look through the connector catalog and suggest the best match.",
+      looking: {
+        tool: { label: "Searching connectors", code: "video-generation" },
+        text: "Scanned the Composio app catalog for video generation. HeyGen matches best (AI avatars + voiceover).",
+      },
+      suggestions: [
+        {
+          id: "heygen",
+          app: "heygen",
+          kind: "connector",
+          name: "HeyGen",
+          description: "Please login to use this connector",
+          actionLabel: "Log in",
+        },
+      ],
+      response:
+        "I can generate the promotional video, but I need access to **HeyGen** first. Connect it using the card above (or the 🔗 button by the input), then press **Continue** and I'll pick up right where I left off.",
+    };
   }
 
-  if (!streaming.value) {
-    const data = (await res.json()) as { content?: string };
-    yield data.content ?? "";
-    return;
+  if (needsVideo && heyConnected) {
+    return {
+      thinking: "HeyGen is connected now — I have everything I need to produce the promotional video.",
+      reasoning:
+        "I'll draft a short script, pick an avatar + voice, render the clip with HeyGen, and return a shareable link.",
+      looking: {
+        tool: { label: "Calling connector", code: "heygen.generate_video" },
+        text: "Using connected tools: HeyGen (video generation).",
+      },
+      suggestions: [
+        {
+          id: "heygen",
+          app: "heygen",
+          kind: "connector",
+          name: "HeyGen",
+          description: "Connected",
+          actionLabel: "Manage",
+        },
+      ],
+      response:
+        "Done! Here's your promotional video:\n\n1. **Script** — a punchy 20-second hook about the product.\n2. **Avatar + voice** — professional preset, English (US).\n3. **Render** — 1080p, ready to share.\n\n[▶ View generated video](https://example.com/heygen/clip) · *generated with HeyGen*",
+    };
   }
 
-  if (!res.body) throw new Error("No response body to stream.");
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    yield decoder.decode(value, { stream: true });
+  return {
+    thinking: `Parsing the request: "${query}". Identifying intent and the smallest plan to answer well.`,
+    reasoning: "This is answerable directly without external tools, so I'll compose a clear, structured reply.",
+    looking: "No external connectors required for this one.",
+    suggestions: [],
+    response: answerFor(q),
+  };
+}
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Simulated structured agent. Streams the JSON object slice-by-slice so the
+// accordion steps and final answer fill in progressively. Swap this for a real
+// transport (OpenAI + Composio tool-calls) returning the same schema.
+const agentTransport: ChatTransport = async function* (history, { signal }) {
+  const lastUser = [...history].reverse().find((m) => m.role === "user");
+  const target = buildAnswer(lastUser?.content ?? "");
+
+  awaitingConnector.value =
+    Array.isArray(target.suggestions) && target.suggestions.length && !connectors.isConnected("heygen")
+      ? "heygen"
+      : null;
+
+  const json = JSON.stringify(target);
+  const size = 5;
+  for (let i = 0; i < json.length; i += size) {
+    if (signal?.aborted) return;
+    await delay(14);
+    yield json.slice(i, i + size);
   }
 };
 
 const { messages, input, isLoading, status, error, handleSubmit, regenerate, stop } = useChat({
   initialMessages: conversations.value[0].messages,
-  transport: openaiTransport,
-  // Getter so toggling the checkbox takes effect on the next message.
-  structuredOutput: () => structured.value,
+  transport: agentTransport,
+  // Plain text is removed — every reply is structured output.
+  structuredOutput: true,
 });
 
-// Keep the active conversation's title + timestamp in sync as it changes.
 watch(
   messages,
   () => {
@@ -171,14 +244,15 @@ function selectConversation(id: string) {
   if (!conv || conv.id === activeId.value) return;
   stop();
   error.value = null;
+  awaitingConnector.value = null;
   activeId.value = id;
-  // Same array reference, so useChat mutations persist back to the conversation.
   messages.value = conv.messages;
 }
 
 function newChat() {
   stop();
   error.value = null;
+  awaitingConnector.value = null;
   const conv: Convo = { id: uid(), title: "New chat", messages: [welcome()], updatedAt: Date.now() };
   conversations.value.unshift(conv);
   activeId.value = conv.id;
@@ -198,20 +272,25 @@ function deleteConversation(id: string) {
 function clearActive() {
   stop();
   error.value = null;
+  awaitingConnector.value = null;
   messages.value.splice(0, messages.value.length);
 }
 
-// Offer "Regenerate" once the last message is a finished assistant reply.
 const canRegenerate = computed(() => {
   const last = messages.value.at(-1);
-  return !isLoading.value && last?.role === "assistant";
+  return !isLoading.value && last?.role === "assistant" && !awaitingConnector.value;
 });
 
 function dismissError() {
   error.value = null;
 }
 
-// ChatInput emits staged attachments on submit; forward them to useChat.
+// Resume generation once the required connector is connected.
+function continueGeneration() {
+  awaitingConnector.value = null;
+  regenerate();
+}
+
 function onSubmit(attachments: SendOptions["attachments"]) {
   handleSubmit({ attachments });
 }
@@ -222,85 +301,6 @@ function onAttachmentReject({ file, reason }: { file: File; reason: string }) {
       ? `"${file.name}" is too large (max 2 MB).`
       : `"${file.name}" is not an allowed file type.`,
   );
-}
-
-// Inject a crafted message that exercises every rich-content feature, since
-// the live model won't reliably emit tool calls / citations / attachments.
-const RICH_CONTENT = `Here's a quick tour of **rich rendering**.
-
-## Markdown + tables
-
-| Framework | Language | Stars |
-| --------- | -------- | ----- |
-| Vue       | JS/TS    | ⭐⭐⭐⭐  |
-| Svelte    | JS/TS    | ⭐⭐⭐   |
-
-## Syntax-highlighted code
-
-\`\`\`ts
-function greet(name: string): string {
-  // inline code like \`const x = 1\` also works
-  return \`Hello, \${name}!\`;
-}
-\`\`\`
-
-## Math
-
-Inline: $e^{i\\pi} + 1 = 0$, and a block:
-
-$$\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}$$
-
-## Image
-
-![A tiny placeholder](https://placehold.co/240x80/6d5efc/ffffff?text=Vue+Agent+SDK)
-`;
-
-// Bulk-add messages to demonstrate grouping + virtualization on long chats.
-function bulkAdd() {
-  const now = Date.now();
-  const batch = Array.from({ length: 30 }, (_, i) => {
-    const role = i % 3 === 0 ? "user" : "assistant";
-    return {
-      id: `bulk-${now}-${i}`,
-      role: role as "user" | "assistant",
-      content:
-        role === "user"
-          ? `Question #${i + 1}: what's interesting about item ${i + 1}?`
-          : `Reply #${i + 1}. Consecutive messages from the same author are **grouped** under one avatar. This list can be virtualized for performance.`,
-      status: "sent" as const,
-      createdAt: now + i,
-    };
-  });
-  messages.value.push(...batch);
-}
-
-function insertRichDemo() {
-  messages.value.push({
-    id: `demo-${Date.now()}`,
-    role: "assistant",
-    content: RICH_CONTENT,
-    status: "sent",
-    reasoning:
-      "The user asked for a feature tour. I'll show a table, a fenced code block, inline + block math, and an image, then attach the supporting tool call and sources.",
-    toolCalls: [
-      {
-        id: "call_1",
-        name: "search_docs",
-        args: { query: "vue agent sdk features", limit: 3 },
-        result: { hits: 3, top: "rich-content rendering" },
-        status: "success",
-      },
-    ],
-    attachments: [
-      { type: "image", url: "https://placehold.co/160x100/10b981/ffffff?text=chart.png", name: "chart.png" },
-      { type: "file", url: "#", name: "report.pdf", size: 248_000 },
-    ],
-    citations: [
-      { title: "Vue.js Documentation", url: "https://vuejs.org" },
-      { title: "markdown-it", url: "https://github.com/markdown-it/markdown-it" },
-      { title: "KaTeX", url: "https://katex.org" },
-    ],
-  });
 }
 </script>
 
@@ -352,38 +352,19 @@ function insertRichDemo() {
           <ChatSidebarToggle />
         </template>
         <template #actions>
+          <button
+            type="button"
+            class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
+            @click="connectors.open()"
+          >
+            Connectors
+          </button>
           <label
             class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
           >
             <input v-model="virtualized" type="checkbox" class="accent-[var(--agent-primary)]" />
             Virtualize
           </label>
-          <label
-            class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
-          >
-            <input v-model="streaming" type="checkbox" class="accent-[var(--agent-primary)]" />
-            Stream
-          </label>
-          <label
-            class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--agent-muted)]"
-          >
-            <input v-model="structured" type="checkbox" class="accent-[var(--agent-primary)]" />
-            Structured
-          </label>
-          <button
-            type="button"
-            class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
-            @click="bulkAdd"
-          >
-            Bulk +30
-          </button>
-          <button
-            type="button"
-            class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
-            @click="insertRichDemo"
-          >
-            Rich demo
-          </button>
           <button
             type="button"
             class="rounded-lg px-2.5 py-1 text-xs text-[var(--agent-muted)] transition-colors hover:text-[var(--agent-fg)]"
@@ -395,8 +376,6 @@ function insertRichDemo() {
       </ChatHeader>
 
       <ChatMessages :messages="messages" :avatars="avatars" :virtualized="virtualized">
-        <!-- Custom renderer for structured output. Remove this slot to fall
-             back to the built-in <ChatObject> auto-renderer. -->
         <template #object="{ data, message }">
           <ChatStructured
             :data="data"
@@ -407,6 +386,35 @@ function insertRichDemo() {
       </ChatMessages>
 
       <ChatError v-if="error" :error="error" @dismiss="dismissError" />
+
+      <!-- Stop-ask-continue: the agent paused waiting for a connector. -->
+      <div
+        v-if="awaitingConnector"
+        class="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--agent-border)] bg-[var(--agent-surface)] px-4 py-2.5"
+      >
+        <span class="text-xs text-[var(--agent-muted)]">
+          <template v-if="canContinue">
+            {{ awaitingApp?.name }} connected — ready to continue.
+          </template>
+          <template v-else> Connect {{ awaitingApp?.name }} to continue. </template>
+        </span>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+          :class="
+            canContinue
+              ? 'bg-[var(--agent-primary)] text-[var(--agent-primary-fg)] hover:opacity-90'
+              : 'bg-[var(--agent-surface-2)] text-[var(--agent-muted)]'
+          "
+          :disabled="!canContinue"
+          @click="continueGeneration"
+        >
+          <svg viewBox="0 0 24 24" class="size-3.5" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="m9 18 6-6-6-6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          Continue
+        </button>
+      </div>
 
       <ChatInput
         v-model="input"
@@ -422,7 +430,12 @@ function insertRichDemo() {
           max-size="2mb"
           @reject="onAttachmentReject"
         />
+        <Connectors :connected="['instagram']" />
       </ChatInput>
     </ChatWindow>
+
+    <!-- Connectors modal: Composio apps + custom MCP. Coordinates with the
+         <Connectors> trigger and suggestion cards via the connectors store. -->
+    <ConnectorsModal :apps="composioApps" :custom="true" />
   </ChatLayout>
 </template>

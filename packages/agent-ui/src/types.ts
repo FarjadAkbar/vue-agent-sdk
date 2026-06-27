@@ -99,7 +99,13 @@ export type StructuredFieldType =
   | "steps"
   | "list"
   | "tags"
-  | "table";
+  | "table"
+  /** Collapsible step (e.g. thinking / reasoning / looking). */
+  | "accordion"
+  /** Render the value as markdown (e.g. the final response). */
+  | "markdown"
+  /** Render an array of {@link Suggestion} as connector/MCP cards. */
+  | "suggestions";
 
 /** A declarative description of one field in a structured-output object. */
 export interface StructuredField {
@@ -115,6 +121,51 @@ export interface StructuredField {
   detailKey?: string;
   /** For `table`: explicit column order. Inferred from rows when omitted. */
   columns?: string[];
+  /** For `accordion`: start expanded (defaults to collapsing once `response` arrives). */
+  defaultOpen?: boolean;
+  /** For `accordion`: optional icon hint ("thinking" | "reasoning" | "looking"). */
+  icon?: "thinking" | "reasoning" | "looking" | "search";
+}
+
+/** Connection state of a connector/MCP. */
+export type ConnectorStatus = "available" | "needs_auth" | "connecting" | "connected" | "error";
+
+/**
+ * A connectable app (Composio connector) or custom MCP server, listed in
+ * `<ChatConnectorsModal>` and referenced by suggestions.
+ */
+export interface ConnectorApp {
+  /** Stable id, e.g. "gmail" or "heygen". */
+  id: string;
+  name: string;
+  description?: string;
+  /** Icon URL (falls back to an initial). */
+  icon?: string;
+  /** "connector" (Composio) or "mcp" (custom MCP server). */
+  kind?: "connector" | "mcp";
+  /** Whether connecting requires auth (OAuth / API key). */
+  requiresAuth?: boolean;
+  /** For custom MCP entries. */
+  url?: string;
+}
+
+/**
+ * A suggested connector/MCP emitted in structured output and rendered as a
+ * card (via the `suggestions` field type / `<ChatSuggestion>`).
+ */
+export interface Suggestion {
+  id: string;
+  /** Matches a {@link ConnectorApp} id so connection state can be resolved. */
+  app?: string;
+  /** "connector" (Composio app) or "mcp" (custom MCP server). */
+  kind?: "connector" | "mcp";
+  name: string;
+  description?: string;
+  icon?: string;
+  /** Hint about why this needs action; resolved live against connected state. */
+  status?: ConnectorStatus;
+  /** Override the action button label (defaults based on status). */
+  actionLabel?: string;
 }
 
 /** A saved conversation, rendered by `<ChatConversationList>` in the sidebar. */
