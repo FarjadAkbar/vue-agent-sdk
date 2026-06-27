@@ -27,6 +27,8 @@ const props = withDefaults(
     virtualized?: boolean;
     /** Estimated row height (px) used by the virtualizer before measuring. */
     estimateSize?: number;
+    /** Max width of the centered message column. Use "full" to fill the area. */
+    maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "full";
   }>(),
   {
     autoScroll: true,
@@ -36,7 +38,24 @@ const props = withDefaults(
     markdown: true,
     virtualized: false,
     estimateSize: 96,
+    maxWidth: "3xl",
   },
+);
+
+// Literal class names so the Tailwind scanner picks them up.
+const maxWidthClass = computed(
+  () =>
+    ({
+      sm: "max-w-sm",
+      md: "max-w-md",
+      lg: "max-w-lg",
+      xl: "max-w-xl",
+      "2xl": "max-w-2xl",
+      "3xl": "max-w-3xl",
+      "4xl": "max-w-4xl",
+      "5xl": "max-w-5xl",
+      full: "max-w-full",
+    })[props.maxWidth],
 );
 
 const wrapper = ref<HTMLElement | null>(null);
@@ -131,7 +150,7 @@ watch(
       </slot>
     </div>
 
-    <div v-else class="relative mx-auto w-full max-w-2xl px-4" :style="{ height: `${totalSize}px` }">
+    <div v-else class="relative mx-auto w-full px-4" :class="maxWidthClass" :style="{ height: `${totalSize}px` }">
       <div
         v-for="vRow in virtualRows"
         :key="String(vRow.key)"
@@ -164,7 +183,7 @@ watch(
 
   <!-- Standard list: Lenis smooth scroll. -->
   <div v-else ref="wrapper" class="agent-scroll relative h-full min-h-0 flex-1 overflow-y-auto">
-    <div ref="content" class="mx-auto flex w-full max-w-2xl flex-col px-4 py-6">
+    <div ref="content" class="mx-auto flex w-full flex-col px-4 py-6" :class="maxWidthClass">
       <slot name="header" />
 
       <div

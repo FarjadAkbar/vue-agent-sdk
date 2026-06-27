@@ -81,6 +81,17 @@ const statusLabel = computed(() => {
 });
 
 const isError = computed(() => props.message.status === "error");
+
+// Rich assistant content (structured output / tools / reasoning / attachments)
+// should use the full column width; plain text bubbles still hug their content.
+const isRich = computed(
+  () =>
+    !isUser.value &&
+    (isStructured.value ||
+      hasToolCalls.value ||
+      hasAttachments.value ||
+      Boolean(props.message.reasoning)),
+);
 </script>
 
 <template>
@@ -110,7 +121,13 @@ const isError = computed(() => props.message.status === "error");
     <div v-else class="size-8 shrink-0" aria-hidden="true" />
 
     <!-- Bubble + meta -->
-    <div class="flex min-w-0 max-w-[85%] flex-col gap-1" :class="isUser ? 'items-end' : 'items-start'">
+    <div
+      class="flex min-w-0 flex-col gap-1"
+      :class="[
+        isUser ? 'max-w-[85%] items-end sm:max-w-[80%]' : 'items-start',
+        isRich ? 'w-full flex-1' : 'max-w-[85%] sm:max-w-[80%]',
+      ]"
+    >
       <div
         class="group relative min-w-0 rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm transition-colors"
         :class="[
@@ -118,6 +135,7 @@ const isError = computed(() => props.message.status === "error");
             ? 'rounded-tr-sm bg-[var(--agent-primary)] text-[var(--agent-primary-fg)]'
             : 'rounded-tl-sm bg-[var(--agent-surface)] text-[var(--agent-fg)] ring-1 ring-[var(--agent-border)]',
           isError && !isUser ? 'ring-red-500/40' : '',
+          isRich ? 'w-full' : '',
         ]"
       >
         <slot :message="message">

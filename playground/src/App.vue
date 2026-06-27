@@ -375,7 +375,7 @@ function onAttachmentReject({ file, reason }: { file: File; reason: string }) {
         </template>
       </ChatHeader>
 
-      <ChatMessages :messages="messages" :avatars="avatars" :virtualized="virtualized">
+      <ChatMessages :messages="messages" :avatars="avatars" :virtualized="virtualized" max-width="full">
         <template #object="{ data, message }">
           <ChatStructured
             :data="data"
